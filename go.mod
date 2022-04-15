@@ -1,5 +1,5 @@
-module github.com/goware/modvendor
+module github.com/troian/modvendor
 
-require github.com/mattn/go-zglob v0.0.2-0.20191112051448-a8912a37f9e7
+go 1.18
 
-go 1.14
+require github.com/mattn/go-zglob v0.0.3
