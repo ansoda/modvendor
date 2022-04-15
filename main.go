@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"go/build"
 	"io"
 	"os"
 	"path/filepath"
@@ -34,7 +35,11 @@ type Mod struct {
 }
 
 func main() {
-	flags.Parse(os.Args[1:])
+	err := flags.Parse(os.Args[1:])
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 
 	// Ensure go.mod file exists and we're running from the project root,
 	// and that ./vendor/modules.txt file exists.
@@ -63,19 +68,22 @@ func main() {
 
 	// Parse/process modules.txt file of pkgs
 	f, _ := os.Open(modtxtPath)
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
+
 	scanner := bufio.NewScanner(f)
 	scanner.Split(bufio.ScanLines)
 
 	var mod *Mod
-	modules := []*Mod{}
+	var modules []*Mod
 
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		if line[0] == 35 {
+		if line[0] == '#' {
 			s := strings.Split(line, " ")
-			if (len(s) != 6 && len(s) != 3) || s[1] == "explicit" {
+			if (len(s) != 6 && len(s) != 5 && len(s) != 3) || s[1] == "explicit" {
 				continue
 			}
 
@@ -83,6 +91,7 @@ func main() {
 				ImportPath: s[1],
 				Version:    s[2],
 			}
+
 			if s[2] == "=>" {
 				// issue https://github.com/golang/go/issues/33848 added these,
 				// see comments. I think we can get away with ignoring them.
@@ -102,14 +111,25 @@ func main() {
 					}
 				} else {
 					mod.SourceVersion = s[5]
-					mod.Dir = pkgModPath(mod.SourcePath, mod.SourceVersion)
+
+					dir, err := pkgModPath(mod.SourcePath, mod.SourceVersion)
+					if err != nil {
+						fmt.Printf("Error! couldn't resolve module path for %q: %v\n", mod.SourcePath, err)
+						os.Exit(1)
+					}
+					mod.Dir = dir
 				}
 			} else {
-				mod.Dir = pkgModPath(mod.ImportPath, mod.Version)
+				dir, err := pkgModPath(mod.ImportPath, mod.Version)
+				if err != nil {
+					fmt.Printf("Error! couldn't resolve module path for %q: %v\n", mod.ImportPath, err)
+					os.Exit(1)
+				}
+				mod.Dir = dir
 			}
 
 			if _, err := os.Stat(mod.Dir); os.IsNotExist(err) {
-				fmt.Printf("Error! %q module path does not exist, check $GOPATH/pkg/mod\n", mod.Dir)
+				fmt.Printf("Error! %q module path does not exist (importParth=%s), check $GOPATH/pkg/mod\n", mod.Dir, mod.ImportPath)
 				os.Exit(1)
 			}
 
@@ -135,7 +155,7 @@ func main() {
 		if len(mod.VendorList) == 0 {
 			continue
 		}
-		for vendorFile, _ := range mod.VendorList {
+		for vendorFile := range mod.VendorList {
 			for _, subpkg := range mod.Pkgs {
 				path := filepath.Join(mod.Dir, importPathIntersect(mod.ImportPath, subpkg))
 
@@ -168,7 +188,11 @@ func main() {
 				fmt.Printf("vendoring %s\n", localPath)
 			}
 
-			os.MkdirAll(filepath.Dir(localFile), os.ModePerm)
+			if err := os.MkdirAll(filepath.Dir(localFile), os.ModePerm); err != nil {
+				fmt.Printf("Error! %s - unable to create directory %s\n", err.Error(), filepath.Dir(localFile))
+				os.Exit(1)
+			}
+
 			if _, err := copyFile(vendorFile, localFile); err != nil {
 				fmt.Printf("Error! %s - unable to copy file %s\n", err.Error(), vendorFile)
 				os.Exit(1)
@@ -213,17 +237,10 @@ func normString(str string) (normStr string) {
 	return
 }
 
-func pkgModPath(importPath, version string) string {
-	goPath := os.Getenv("GOPATH")
-	if goPath == "" {
-		// the default GOPATH for go v1.11
-		goPath = filepath.Join(os.Getenv("HOME"), "go")
-	}
-
+func pkgModPath(importPath, version string) (string, error) {
 	normPath := normString(importPath)
 	normVersion := normString(version)
-
-	return filepath.Join(goPath, "pkg", "mod", fmt.Sprintf("%s@%s", normPath, normVersion))
+	return filepath.Join(build.Default.GOPATH, "pkg", "mod", fmt.Sprintf("%s@%s", normPath, normVersion)), nil
 }
 
 func copyFile(src, dst string) (int64, error) {
@@ -240,13 +257,17 @@ func copyFile(src, dst string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer srcFile.Close()
+	defer func() {
+		_ = srcFile.Close()
+	}()
 
 	dstFile, err := os.Create(dst)
 	if err != nil {
 		return 0, err
 	}
-	defer dstFile.Close()
+	defer func() {
+		_ = dstFile.Close()
+	}()
 
 	return io.Copy(dstFile, srcFile)
 }
