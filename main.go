@@ -83,7 +83,22 @@ func main() {
 
 		if line[0] == '#' {
 			s := strings.Split(line, " ")
-			if (len(s) != 6 && len(s) != 5 && len(s) != 3) || s[1] == "explicit" {
+
+			// ignore patterns except for
+			// - ordinary module
+			//   # <mod> version
+			// - replace
+			//   # <mod> version => <mod1> version1
+			// - replace with local version
+			//   # <mod> version => <local path to mod1>
+			if (len(s) != 6 && len(s) != 5 && len(s) != 3) ||
+				s[1] == "explicit" {
+				continue
+			}
+
+			// issue https://github.com/golang/go/issues/33848 added these,
+			// see comments. I think we can get away with ignoring them.
+			if s[2] == "=>" {
 				continue
 			}
 
@@ -92,11 +107,6 @@ func main() {
 				Version:    s[2],
 			}
 
-			if s[2] == "=>" {
-				// issue https://github.com/golang/go/issues/33848 added these,
-				// see comments. I think we can get away with ignoring them.
-				continue
-			}
 			// Handle "replace" in module file if any
 			if len(s) > 3 && s[3] == "=>" {
 				mod.SourcePath = s[4]
