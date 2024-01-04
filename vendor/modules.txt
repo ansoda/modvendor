@@ -1,0 +1,15 @@
+# github.com/mattn/go-zglob v0.0.3
+## explicit
+github.com/mattn/go-zglob
+github.com/mattn/go-zglob/fastwalk
+# github.com/otiai10/copy v1.14.0
+## explicit; go 1.18
+github.com/otiai10/copy
+# golang.org/x/sync v0.3.0
+## explicit; go 1.17
+golang.org/x/sync/errgroup
+golang.org/x/sync/semaphore
+# golang.org/x/sys v0.0.0-20220715151400-c0bba94af5f8
+## explicit; go 1.17
+golang.org/x/sys/internal/unsafeheader
+golang.org/x/sys/unix

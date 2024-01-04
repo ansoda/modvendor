@@ -12,13 +12,15 @@ import (
 	"unicode"
 
 	"github.com/mattn/go-zglob"
+	"github.com/otiai10/copy"
 )
 
 var (
-	flags       = flag.NewFlagSet("modvendor", flag.ExitOnError)
-	copyPatFlag = flags.String("copy", "", "copy files matching glob pattern to ./vendor/ (ie. modvendor -copy=\"**/*.c **/*.h **/*.proto\")")
-	verboseFlag = flags.Bool("v", false, "verbose output")
-	includeFlag = flags.String(
+	flags        = flag.NewFlagSet("modvendor", flag.ExitOnError)
+	copyPatFlag  = flags.String("copy", "", "copy files matching glob pattern to ./vendor/ (ie. modvendor -copy=\"**/*.c **/*.h **/*.proto\")")
+	fullCopyFlag = flags.Bool("fullcopy", true, "copy all project files to ./vendor/ (ie. modvendor -fullcopy=true")
+	verboseFlag  = flags.Bool("v", false, "verbose output")
+	includeFlag  = flags.String(
 		"include",
 		"",
 		`specifies additional directories to copy into ./vendor/ which are not specified in ./vendor/modules.txt. Multiple directories can be included by comma separation e.g. -include:github.com/a/b/dir1,github.com/a/b/dir1/dir2`)
@@ -154,10 +156,15 @@ func main() {
 
 			modules = append(modules, mod)
 
+			if *fullCopyFlag {
+				mod.Pkgs = append(mod.Pkgs, mod.ImportPath)
+			}
 			continue
 		}
 
-		mod.Pkgs = append(mod.Pkgs, line)
+		if !(*fullCopyFlag) {
+			mod.Pkgs = append(mod.Pkgs, line)
+		}
 	}
 
 	// Filter out files not part of the mod.Pkgs
@@ -203,7 +210,7 @@ func main() {
 				os.Exit(1)
 			}
 
-			if _, err := copyFile(vendorFile, localFile); err != nil {
+			if err := copy.Copy(vendorFile, localFile); err != nil {
 				fmt.Printf("Error! %s - unable to copy file %s\n", err.Error(), vendorFile)
 				os.Exit(1)
 			}
@@ -215,7 +222,13 @@ func buildModVendorList(copyPat []string, mod *Mod) map[string]bool {
 	vendorList := map[string]bool{}
 
 	for _, pat := range copyPat {
-		matches, err := zglob.Glob(filepath.Join(mod.Dir, pat))
+		var matches []string
+		var err error
+		if len(pat) > 0 {
+			matches, err = zglob.Glob(filepath.Join(mod.Dir, pat))
+		} else {
+			matches, err = getDirAllEntryPathsFollowSymlink(mod.Dir, true)
+		}
 		if err != nil {
 			fmt.Println("Error! glob match failure:", err)
 			os.Exit(1)
@@ -280,4 +293,39 @@ func copyFile(src, dst string) (int64, error) {
 	}()
 
 	return io.Copy(dstFile, srcFile)
+}
+
+// getDirAllEntryPathsFollowSymlink gets all the file or dir paths in the specified directory recursively.
+func getDirAllEntryPathsFollowSymlink(dirname string, incl bool) ([]string, error) {
+	// Remove the trailing path separator if dirname has.
+	dirname = strings.TrimSuffix(dirname, string(os.PathSeparator))
+
+	infos, err := os.ReadDir(dirname)
+	if err != nil {
+		return nil, err
+	}
+
+	paths := make([]string, 0, len(infos))
+	// Include current dir.
+	if incl {
+		paths = append(paths, dirname)
+	}
+
+	for _, info := range infos {
+		path := dirname + string(os.PathSeparator) + info.Name()
+		realInfo, err := os.Stat(path)
+		if err != nil {
+			return nil, err
+		}
+		if realInfo.IsDir() {
+			tmp, err := getDirAllEntryPathsFollowSymlink(path, incl)
+			if err != nil {
+				return nil, err
+			}
+			paths = append(paths, tmp...)
+			continue
+		}
+		paths = append(paths, path)
+	}
+	return paths, nil
 }
