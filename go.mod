@@ -1,4 +1,4 @@
-module github.com/troian/modvendor
+module github.com/ansoda/modvendor
 
 go 1.18
 
