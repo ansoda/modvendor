@@ -210,7 +210,9 @@ func main() {
 				os.Exit(1)
 			}
 
-			if err := copy.Copy(vendorFile, localFile); err != nil {
+			var opt copy.Options
+			opt.PermissionControl = copy.AddPermission(0644)
+			if err := copy.Copy(vendorFile, localFile, opt); err != nil {
 				fmt.Printf("Error! %s - unable to copy file %s\n", err.Error(), vendorFile)
 				os.Exit(1)
 			}
